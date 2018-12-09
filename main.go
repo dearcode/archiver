@@ -45,7 +45,7 @@ func main() {
 		log.Fatalf("%v purger New error:%v", session, err)
 	}
 
-	rows, err := h.Start(ctx, *srouce, *table, *where, *limit)
+	rows, err := h.Start(ctx, *source, *table, *where, *limit)
 	if err != nil {
 		log.Fatalf("%v harvester Start error:%v", session, err)
 	}

@@ -15,20 +15,21 @@ import (
 )
 
 type mysqlTask struct {
-	session    string
-	table      string
-	where      string
-	fields     []string
-	fieldKey   string
-	dbc        *sql.DB
-	cols       []meta.ColumnDef
-	lastKey    string
-	primaryKey string
-	eventChan  chan struct{}
-	rowChan    chan []sql.NullString
-	ctx        context.Context
-	err        error
-	limit      int
+	session       string
+	table         string
+	where         string
+	fields        []string
+	fieldKey      string
+	dbc           *sql.DB
+	cols          []meta.ColumnDef
+	lastKey       string
+	primaryKey    string
+	primaryKeyIdx int
+	eventChan     chan struct{}
+	rowChan       chan []sql.NullString
+	ctx           context.Context
+	err           error
+	limit         int
 }
 
 func (t mysqlTask) String() string {
@@ -155,7 +156,7 @@ func (t *mysqlTask) batchQuery(stmt *sql.Stmt, lastKey string) (string, error) {
 	for rows.Next() {
 		select {
 		case <-t.ctx.Done():
-			return
+			return lastKey, nil
 		default:
 		}
 
@@ -164,9 +165,11 @@ func (t *mysqlTask) batchQuery(stmt *sql.Stmt, lastKey string) (string, error) {
 			return "", errors.Trace(err)
 		}
 
+		lastKey = row[t.primaryKeyIdx].String
 		t.rowChan <- row
 	}
 
+	return lastKey, nil
 }
 
 func (t *mysqlTask) dumpSQL() {
@@ -180,13 +183,18 @@ func (t *mysqlTask) dumpSQL() {
 	}
 	defer stmt.Close()
 
+	var lastKey string
 	for {
 		select {
 		case <-t.ctx.Done():
-			return nil
+			log.Infof("%v done", t)
+			return
 		case <-t.eventChan:
 		}
-
+		if lastKey, err = t.batchQuery(stmt, lastKey); err != nil {
+			log.Errorf("%v batchQuery error:%v", t, errors.ErrorStack(err))
+			return
+		}
 	}
 
 }
@@ -210,9 +218,10 @@ func (t *mysqlTask) Start(ctx context.Context, dsn string, table, where string, 
 		return nil, errors.Trace(err)
 	}
 
-	for _, c := range t.cols {
+	for i, c := range t.cols {
 		if strings.EqualFold(c.Key, "PRI") {
 			t.primaryKey = c.Field
+			t.primaryKeyIdx = i
 			break
 		}
 	}
